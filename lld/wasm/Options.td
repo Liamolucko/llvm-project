@@ -216,6 +216,9 @@ defm check_features: BB<"check-features",
 def features: CommaJoined<["--", "-"], "features=">,
   HelpText<"Comma-separated used features, inferred from input objects by default.">;
 
+def cabi: FF<"cabi">,
+  HelpText<"Emit a module which conforms to the experimental Canonical ABI">;
+
 // Aliases
 def: JoinedOrSeparate<["-"], "e">, Alias<entry>;
 def: J<"entry=">, Alias<entry>;

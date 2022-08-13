@@ -27,6 +27,7 @@ enum class UnresolvedPolicy { ReportError, Warn, Ignore, ImportDynamic };
 // Most fields are initialized by the driver.
 struct Configuration {
   bool bsymbolic;
+  bool cabi;
   bool checkFeatures;
   bool compressRelocations;
   bool demangle;

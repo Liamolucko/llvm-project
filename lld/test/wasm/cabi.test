@@ -1,0 +1,15 @@
+# RUN: llvm-mc -filetype=obj -triple=wasm32-unknown-unknown %p/Inputs/start.s -o %t.start.o
+# RUN: wasm-ld --cabi -o %t.wasm %t.start.o
+# RUN: obj2yaml %t.wasm | FileCheck %s
+
+# Verify that the --cabi flag causes the module's memory to be exported as `cabi_memory`
+
+# CHECK:       - Type:            EXPORT
+# CHECK-NEXT:    Exports:
+# CHECK-NEXT:      - Name:            cabi_memory
+# CHECK-NEXT:        Kind:            MEMORY
+# CHECK-NEXT:        Index:           0
+# CHECK-NEXT:      - Name:            _start
+# CHECK-NEXT:        Kind:            FUNCTION
+# CHECK-NEXT:        Index:           0
+# CHECK-NEXT:  - Type:

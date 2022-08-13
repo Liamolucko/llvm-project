@@ -638,9 +638,18 @@ void Writer::calculateExports() {
   if (config->relocatable)
     return;
 
-  if (!config->relocatable && !config->importMemory)
-    out.exportSec->exports.push_back(
-        WasmExport{"memory", WASM_EXTERNAL_MEMORY, 0});
+  // Although the canonical ABI itself doesn't allow memory to be imported, I
+  // think the sanest thing to do if both `--import-memory` and `--cabi` are
+  // specified is to import the memory and reexport it as `cabi_memory`.
+  // I could see this being useful if you've got some custom format for your
+  // module where it imports its memory, but you also want to reuse some of the
+  // canonical ABI's machinery.
+  if (!config->importMemory || config->cabi) {
+    llvm::StringRef name = "memory";
+    if (config->cabi)
+      name = "cabi_memory";
+    out.exportSec->exports.push_back(WasmExport{name, WASM_EXTERNAL_MEMORY, 0});
+  }
 
   unsigned globalIndex =
       out.importSec->getNumImportedGlobals() + out.globalSec->numGlobals();

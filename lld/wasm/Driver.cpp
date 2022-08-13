@@ -351,6 +351,7 @@ static UnresolvedPolicy getUnresolvedSymbolPolicy(opt::InputArgList &args) {
 // Initializes Config members by the command line options.
 static void readConfigs(opt::InputArgList &args) {
   config->bsymbolic = args.hasArg(OPT_Bsymbolic);
+  config->cabi = args.hasArg(OPT_cabi);
   config->checkFeatures =
       args.hasFlag(OPT_check_features, OPT_no_check_features, true);
   config->compressRelocations = args.hasArg(OPT_compress_relocations);
