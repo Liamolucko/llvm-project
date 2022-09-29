@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Writer.h"
+#include "Cabi.h"
 #include "Config.h"
 #include "InputChunks.h"
 #include "InputElement.h"
@@ -46,6 +47,11 @@ static constexpr int heapAlignment = 16;
 
 namespace {
 
+struct CabiStartFunc {
+  cabi::Signature signature;
+  uint32_t index;
+};
+
 // The writer writes a SymbolTable result to a file.
 class Writer {
 public:
@@ -67,6 +73,8 @@ private:
   void createInitTLSFunction();
   void createCommandExportWrappers();
   void createCommandExportWrapper(uint32_t functionIndex, DefinedFunction *f);
+  WasmExport
+  createCabiStartFunction(SmallVector<CabiStartFunc, 0> cabiStartFuncs);
 
   void assignIndexes();
   void populateSymtab();
@@ -218,7 +226,8 @@ void Writer::writeSections() {
 }
 
 static void setGlobalPtr(DefinedGlobal *g, uint64_t memoryPtr) {
-  LLVM_DEBUG(dbgs() << "setGlobalPtr " << g->getName() << " -> " << memoryPtr << "\n");
+  LLVM_DEBUG(dbgs() << "setGlobalPtr " << g->getName() << " -> " << memoryPtr
+                    << "\n");
   g->global->setPointerValue(memoryPtr);
 }
 
@@ -654,6 +663,8 @@ void Writer::calculateExports() {
   unsigned globalIndex =
       out.importSec->getNumImportedGlobals() + out.globalSec->numGlobals();
 
+  SmallVector<CabiStartFunc, 0> cabiStartFuncs;
+
   for (Symbol *sym : symtab->getSymbols()) {
     if (!sym->isExported())
       continue;
@@ -666,7 +677,36 @@ void Writer::calculateExports() {
       if (Optional<StringRef> exportName = f->function->getExportName()) {
         name = *exportName;
       }
-      export_ = {name, WASM_EXTERNAL_FUNCTION, f->getExportedFunctionIndex()};
+
+      if (config->cabi && name.consume_front("cabi_start{cabi=") &&
+          name.contains("}:")) {
+        auto [version, sig] = name.split("}:");
+        if (version != "0.1") {
+          error(Twine("only version 0.1 of the canonical ABI is supported, "
+                      "cannot export `cabi_start` with version '") +
+                version + "'");
+        }
+
+        Optional<cabi::Signature> maybeSignature = cabi::Signature::parse(sig);
+        if (!maybeSignature.has_value()) {
+          error(Twine("invalid signature for `cabi_start`: ") + sig);
+          continue;
+        }
+
+        auto signature = maybeSignature.value();
+
+        auto coreSignature = f->getSignature();
+        if (coreSignature->Params != signature.coreParams() ||
+            coreSignature->Returns != signature.coreResults()) {
+          error(Twine("implementation of `cabi_start` doesn't match its "
+                      "signature.\n") +
+                "Signature: " + sig);
+        }
+
+        cabiStartFuncs.push_back({signature, f->getExportedFunctionIndex()});
+      } else {
+        export_ = {name, WASM_EXTERNAL_FUNCTION, f->getExportedFunctionIndex()};
+      }
     } else if (auto *g = dyn_cast<DefinedGlobal>(sym)) {
       if (g->getGlobalType()->Mutable && !g->getFile() && !g->forceExport) {
         // Avoid exporting mutable globals are linker synthesized (e.g.
@@ -691,6 +731,10 @@ void Writer::calculateExports() {
     LLVM_DEBUG(dbgs() << "Export: " << name << "\n");
     out.exportSec->exports.push_back(export_);
     out.exportSec->exportedSymbols.push_back(sym);
+  }
+
+  if (config->cabi) {
+    out.exportSec->exports.push_back(createCabiStartFunction(cabiStartFuncs));
   }
 }
 
@@ -784,6 +828,33 @@ void Writer::createCommandExportWrappers() {
 
     createCommandExportWrapper(f->getFunctionIndex(), def);
   }
+}
+
+WasmExport
+Writer::createCabiStartFunction(SmallVector<CabiStartFunc, 0> cabiStartFuncs) {
+  std::string name = "cabi_start{version=0.1}: func(";
+
+  for (auto &func : cabiStartFuncs) {
+    name += func.signature.paramsStr;
+    if (func.signature.paramsStr.back() != ',' &&
+        func.index != cabiStartFuncs.back().index) {
+      name += ", ";
+    }
+  }
+
+  name += ") -> (";
+
+  for (auto &func : cabiStartFuncs) {
+    name += func.signature.resultsStr;
+    if (func.signature.resultsStr.back() != ',' &&
+        func.index != cabiStartFuncs.back().index) {
+      name += ", ";
+    }
+  }
+
+  name += ")";
+
+
 }
 
 static void finalizeIndirectFunctionTable() {
@@ -1190,8 +1261,7 @@ void Writer::createInitMemoryFunction() {
             writePtrConst(os, s->startVA, is64, "destination address");
           }
           writeU8(os, WASM_OPCODE_GLOBAL_SET, "GLOBAL_SET");
-          writeUleb128(os, WasmSym::tlsBase->getGlobalIndex(),
-                       "__tls_base");
+          writeUleb128(os, WasmSym::tlsBase->getGlobalIndex(), "__tls_base");
           if (config->isPic) {
             writeU8(os, WASM_OPCODE_LOCAL_GET, "local.tee");
             writeUleb128(os, 1, "local 1");
@@ -1436,7 +1506,8 @@ void Writer::createInitTLSFunction() {
       writeU8(os, WASM_OPCODE_GLOBAL_SET, "global.set");
       writeUleb128(os, WasmSym::tlsBase->getGlobalIndex(), "global index");
 
-      // FIXME(wvo): this local needs to be I64 in wasm64, or we need an extend op.
+      // FIXME(wvo): this local needs to be I64 in wasm64, or we need an extend
+      // op.
       writeU8(os, WASM_OPCODE_LOCAL_GET, "local.get");
       writeUleb128(os, 0, "local index");
 

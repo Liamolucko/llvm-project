@@ -3,6 +3,7 @@ tablegen(LLVM Options.inc -gen-opt-parser-defs)
 add_public_tablegen_target(WasmOptionsTableGen)
 
 add_lld_library(lldWasm
+  Cabi.cpp
   Driver.cpp
   InputChunks.cpp
   InputFiles.cpp
